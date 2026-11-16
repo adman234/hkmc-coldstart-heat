@@ -3,40 +3,34 @@ package com.nemesis.coldstart;
 import android.app.Activity;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 /**
- * Cold-start Heat settings. Writes one-value config files (read by the
- * coldstart.heat NEMESIS service) through the privileged `nemesis root`
- * channel, so this ordinary-uid app can persist to /data/nemesis/state.
+ * Cold-start Heat, always-on edition. No temperature sensor: on every start the
+ * service applies the wheel and seat actions chosen here. Writes one-value
+ * config files through the privileged `nemesis root` channel.
  */
 public class MainActivity extends Activity {
 
     static final String STATE = "/data/nemesis/state/coldstart.heat";
     static final String NEM = "/system/xbin/nemesis";
-    static final String[] SEAT = { "Off", "Low", "Med", "High" };
+    static final String[] LEVEL = { "No action", "1 (Low)", "2 (Med)", "3 (High)" };
 
     boolean enabled = true;
-    int thresholdF = 50;      // trigger when outside temp is below this
     boolean wheel = true;
-    int wheelThresholdF = 50;  // wheel's own trigger; WHEEL_ALWAYS or more = every start
-    static final int WHEEL_ALWAYS = 140;
-    int seatDrv = 0;          // 0..3
-    int seatPass = 0;         // 0..3
-    boolean uiTempIsC = false; // dashboard shows Celsius (affects fallback temp source)
-    boolean diag = false;      // optional persistent diagnostic logging (default off)
+    int seatDrv = 0;      // 0..3
+    int seatPass = 0;     // 0..3
+    boolean cool = false; // false = heat, true = cool/vent (needs vent_enum_1..3)
 
-    TextView thrLabel, wheelThrLabel, statusLabel;
-    Button enBtn, wheelBtn, drvBtn, passBtn, unitBtn, diagBtn;
+    TextView statusLabel;
+    Button enBtn, wheelBtn, modeBtn, drvBtn, passBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -52,9 +46,8 @@ public class MainActivity extends Activity {
         sv.addView(root);
 
         root.addView(title("Cold-start Heat"));
-        root.addView(hint("When you start the car and it's colder than the "
-                + "threshold, the selected seat heaters turn on automatically. The "
-                + "steering wheel has its own threshold, so it can come on every start."));
+        root.addView(hint("Every time the car starts, the choices below are applied. "
+                + "The outside temperature is not checked."));
 
         enBtn = new Button(this);
         enBtn.setOnClickListener(new View.OnClickListener() {
@@ -63,54 +56,23 @@ public class MainActivity extends Activity {
         root.addView(enBtn);
 
         root.addView(gap());
-        thrLabel = new TextView(this);
-        thrLabel.setTextColor(Color.WHITE);
-        thrLabel.setTextSize(18);
-        root.addView(thrLabel);
-
-        final SeekBar sb = new SeekBar(this);
-        sb.setMax(80);                 // 0..80 F
-        sb.setProgress(thresholdF);
-        sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean u) { thresholdF = p; updateThr(); }
-            public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {}
-        });
-        root.addView(sb);
-
-        unitBtn = new Button(this);
-        unitBtn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { uiTempIsC = !uiTempIsC; refresh(); }
-        });
-        root.addView(unitBtn);
-        root.addView(hint("Set this to match the unit your dashboard shows. If your "
-                + "car reports outside temp in Celsius, leaving this on °F makes the "
-                + "heaters fire every start."));
-
-        root.addView(gap());
-        root.addView(section("Heaters to turn on"));
-
+        root.addView(section("Steering wheel"));
         wheelBtn = new Button(this);
         wheelBtn.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { wheel = !wheel; refresh(); }
         });
         root.addView(wheelBtn);
 
-        wheelThrLabel = new TextView(this);
-        wheelThrLabel.setTextColor(Color.WHITE);
-        wheelThrLabel.setTextSize(18);
-        root.addView(wheelThrLabel);
-
-        final SeekBar wsb = new SeekBar(this);
-        wsb.setMax(WHEEL_ALWAYS);      // 0..140 F; 140 = every start
-        wsb.setProgress(wheelThresholdF);
-        wsb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar s, int p, boolean u) { wheelThresholdF = p; updateThr(); }
-            public void onStartTrackingTouch(SeekBar s) {}
-            public void onStopTrackingTouch(SeekBar s) {}
+        root.addView(gap());
+        root.addView(section("Seats"));
+        modeBtn = new Button(this);
+        modeBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { cool = !cool; refresh(); }
         });
-        root.addView(wsb);
-        root.addView(hint("Slide all the way right for every start, whatever the temperature."));
+        root.addView(modeBtn);
+        root.addView(hint("Cool uses your car's ventilation codes, which are not "
+                + "built in. Until vent_enum_1/2/3 are set (see EXTENDING.md), Cool "
+                + "does nothing."));
 
         drvBtn = new Button(this);
         drvBtn.setOnClickListener(new View.OnClickListener() {
@@ -125,23 +87,6 @@ public class MainActivity extends Activity {
         root.addView(passBtn);
 
         root.addView(gap());
-        root.addView(section("Diagnostics (advanced)"));
-        diagBtn = new Button(this);
-        diagBtn.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { diag = !diag; refresh(); }
-        });
-        root.addView(diagBtn);
-        root.addView(hint("Off by default. When on, each start records the temperature "
-                + "it read, the source, and the fire/no-fire decision to a log — useful "
-                + "if the heaters trigger when they shouldn't. Save after changing."));
-        Button copy = new Button(this);
-        copy.setText("Copy diag log to USB");
-        copy.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { copyLogToUsb(); }
-        });
-        root.addView(copy);
-
-        root.addView(gap());
         Button save = new Button(this);
         save.setText("Save");
         save.setOnClickListener(new View.OnClickListener() {
@@ -150,7 +95,7 @@ public class MainActivity extends Activity {
         root.addView(save);
 
         Button test = new Button(this);
-        test.setText("Test now (apply, ignore temp)");
+        test.setText("Test now");
         test.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) { testNow(); }
         });
@@ -172,23 +117,12 @@ public class MainActivity extends Activity {
         refresh();
     }
 
-    void updateThr() {
-        int c = Math.round((thresholdF - 32) * 5f / 9f);
-        thrLabel.setText("Seats: trigger below:  " + thresholdF + " °F  (" + c + " °C)");
-        if (wheelThrLabel != null) wheelThrLabel.setText(wheelThresholdF >= WHEEL_ALWAYS
-            ? "Wheel: every start"
-            : "Wheel: trigger below:  " + wheelThresholdF + " °F  ("
-                + Math.round((wheelThresholdF - 32) * 5f / 9f) + " °C)");
-    }
-
     void refresh() {
         enBtn.setText(enabled ? "Automation: ON" : "Automation: OFF");
-        wheelBtn.setText("Steering wheel:  " + (wheel ? "ON" : "off"));
-        drvBtn.setText("Driver seat:  " + SEAT[seatDrv]);
-        passBtn.setText("Passenger seat:  " + SEAT[seatPass]);
-        unitBtn.setText("My dashboard shows:  " + (uiTempIsC ? "°C" : "°F"));
-        diagBtn.setText("Diagnostic logging:  " + (diag ? "ON" : "off"));
-        updateThr();
+        wheelBtn.setText("Always heat steering wheel:  " + (wheel ? "ON" : "off"));
+        modeBtn.setText("Seat mode:  " + (cool ? "Cool (needs codes)" : "Heat"));
+        drvBtn.setText("Driver seat:  " + LEVEL[seatDrv]);
+        passBtn.setText("Passenger seat:  " + LEVEL[seatPass]);
     }
 
     // ---- config I/O via `nemesis root -c` -------------------------------
@@ -212,49 +146,49 @@ public class MainActivity extends Activity {
     }
 
     void loadConfig() {
-        enabled   = readInt("enabled", 1) == 1;
-        thresholdF= clamp(readInt("threshold_f", 50), 0, 80);
-        wheel     = readInt("wheel", 1) == 1;
-        wheelThresholdF = clamp(readInt("wheel_threshold_f", thresholdF), 0, WHEEL_ALWAYS);
-        seatDrv   = clamp(readInt("seat_drv", 0), 0, 3);
-        seatPass  = clamp(readInt("seat_pass", 0), 0, 3);
-        uiTempIsC = readInt("ui_temp_is_c", 0) == 1;
-        diag      = readInt("diag", 0) == 1;
+        enabled = readInt("enabled", 1) == 1;
+        wheel   = readInt("wheel", 1) == 1;
+        seatDrv = clamp(readInt("seat_drv", 0), 0, 3);
+        seatPass= clamp(readInt("seat_pass", 0), 0, 3);
+        cool    = readInt("seat_mode", 0) == 1;
     }
 
     void saveConfig() {
         String cmd = "mkdir -p " + STATE
             + "; echo " + (enabled ? 1 : 0) + " > " + STATE + "/enabled"
-            + "; echo " + thresholdF + " > " + STATE + "/threshold_f"
             + "; echo " + (wheel ? 1 : 0) + " > " + STATE + "/wheel"
-            + "; echo " + wheelThresholdF + " > " + STATE + "/wheel_threshold_f"
             + "; echo " + seatDrv + " > " + STATE + "/seat_drv"
             + "; echo " + seatPass + " > " + STATE + "/seat_pass"
-            + "; echo " + (uiTempIsC ? 1 : 0) + " > " + STATE + "/ui_temp_is_c"
-            + "; echo " + (diag ? 1 : 0) + " > " + STATE + "/diag";
+            + "; echo " + (cool ? 1 : 0) + " > " + STATE + "/seat_mode";
         String r = runRoot(cmd);
         if (r.startsWith("ERR")) toast("Save failed: " + r);
-        else { toast("Saved"); statusLabel.setText("Saved: wheel " + (!wheel ? "off"
-                : wheelThresholdF >= WHEEL_ALWAYS ? "every start" : "below " + wheelThresholdF + "°F")
-            + "; below " + thresholdF + "°F → drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]
-            + "  [dash " + (uiTempIsC ? "°C" : "°F") + ", diag " + (diag ? "on" : "off") + "]"); }
+        else { toast("Saved"); statusLabel.setText("Saved: every start -> wheel " + (wheel ? "on" : "off")
+            + ", " + (cool ? "cool" : "heat") + " drv " + LEVEL[seatDrv] + ", pass " + LEVEL[seatPass]); }
     }
 
-    // UI level 1/2/3 (Low/Med/High) -> seat enum 6/7/8 ; else 2 (off)
+    // heat: UI level 1/2/3 -> 6/7/8. cool: read vent_enum_<n> on the unit; -1 = not set.
     int seatEnum(int lvl) {
+        if (cool) return readInt("vent_enum_" + lvl, -1);
         switch (lvl) { case 1: return 6; case 2: return 7; case 3: return 8; default: return 2; }
     }
 
     void testNow() {
         StringBuilder c = new StringBuilder();
-        if (wheel)        c.append("service call com.hkmc.vr 16 i32 1; ");
-        if (seatDrv > 0)  c.append("service call com.hkmc.micom.usm 213 i32 ").append(seatEnum(seatDrv)).append("; ");
-        if (seatPass > 0) c.append("service call com.hkmc.micom.usm 214 i32 ").append(seatEnum(seatPass)).append("; ");
-        if (c.length() == 0) { toast("Nothing selected"); return; }
-        runRoot(c.toString());
+        String skipped = "";
+        if (wheel) c.append("service call com.hkmc.vr 16 i32 1; ");
+        if (seatDrv > 0) {
+            int e = seatEnum(seatDrv);
+            if (e < 0) skipped += " driver"; else c.append("service call com.hkmc.micom.usm 213 i32 ").append(e).append("; ");
+        }
+        if (seatPass > 0) {
+            int e = seatEnum(seatPass);
+            if (e < 0) skipped += " passenger"; else c.append("service call com.hkmc.micom.usm 214 i32 ").append(e).append("; ");
+        }
+        if (c.length() == 0) { toast(skipped.length() > 0 ? "No vent codes set" : "Nothing selected"); }
+        else runRoot(c.toString());
         statusLabel.setText("Applied now: wheel " + (wheel ? "on" : "off")
-            + ", drv " + SEAT[seatDrv] + ", pass " + SEAT[seatPass]);
-        toast("Applied");
+            + ", drv " + LEVEL[seatDrv] + ", pass " + LEVEL[seatPass]
+            + (skipped.length() > 0 ? "  (skipped, no vent codes:" + skipped + ")" : ""));
     }
 
     void allOff() {
@@ -262,24 +196,6 @@ public class MainActivity extends Activity {
               + "service call com.hkmc.micom.usm 214 i32 2");
         statusLabel.setText("All heaters commanded off.");
         toast("Off");
-    }
-
-    // copy diag.log onto a plugged-in USB stick (for users without ADB)
-    void copyLogToUsb() {
-        String cmd = "L=" + STATE + "/diag.log; [ -f \"$L\" ] || { echo NOLOG; exit 0; }; "
-            + "for u in /storage/usb0 /storage/usb1 /mnt/media_rw/usb0 /mnt/usbhost0; do "
-            + "[ -d \"$u\" ] && cp \"$L\" \"$u/coldstart-diag.log\" 2>/dev/null && { echo COPIED $u; break; }; done";
-        String r = runRoot(cmd).trim();
-        if (r.startsWith("COPIED")) {
-            toast("Log copied to USB");
-            statusLabel.setText("diag.log copied to " + r.substring(6).trim() + " as coldstart-diag.log");
-        } else if (r.startsWith("NOLOG")) {
-            toast("No log yet");
-            statusLabel.setText("No diag.log yet. Turn Diagnostic logging ON, Save, then start the car once.");
-        } else {
-            toast("No USB found");
-            statusLabel.setText("No USB stick detected. Insert a FAT32 stick and try again.");
-        }
     }
 
     // ---- small view helpers --------------------------------------------
