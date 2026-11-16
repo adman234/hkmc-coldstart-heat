@@ -49,7 +49,7 @@ if [ ! -f "$KS" ]; then
   keytool -genkeypair -keystore "$KS" -storepass "$KS_PASS" -keypass "$KS_PASS" \
     -alias "$KS_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=coldstart" >/dev/null 2>&1
 fi
-"$BT/apksigner" sign --ks "$KS" --ks-alias "$KS_ALIAS" --ks-pass env:KS_PASS --key-pass env:KS_PASS \
+"$BT/apksigner" sign --ks "$KS" --ks-key-alias "$KS_ALIAS" --ks-pass env:KS_PASS --key-pass env:KS_PASS \
   --v1-signing-enabled true --v2-signing-enabled true --min-sdk-version 19 \
   --out "$APP/coldstart.apk" "$OUT/aligned.apk"
 
