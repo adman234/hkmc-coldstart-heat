@@ -22,7 +22,9 @@ BT="$ANDROID_SDK/build-tools/$BUILD_TOOLS"
 AJ="$ANDROID_SDK/platforms/$PLATFORM/android.jar"
 APP="$ROOT/app"
 OUT="$APP/build"
-KS="$APP/debug.jks"
+KS="${KEYSTORE:-$APP/debug.jks}"
+KS_PASS="${KS_PASS:-android}"
+KS_ALIAS="${KS_ALIAS:-cs}"
 
 [ -x "$BT/dx" ] || { echo "no dx in $BT (use a build-tools that still ships dx, e.g. 30.0.3)"; exit 1; }
 [ -f "$AJ" ] || { echo "no android.jar at $AJ"; exit 1; }
@@ -44,10 +46,10 @@ echo "== align =="
 
 echo "== sign (v1 required for KitKat) =="
 if [ ! -f "$KS" ]; then
-  keytool -genkeypair -keystore "$KS" -storepass android -keypass android \
-    -alias cs -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=coldstart" >/dev/null 2>&1
+  keytool -genkeypair -keystore "$KS" -storepass "$KS_PASS" -keypass "$KS_PASS" \
+    -alias "$KS_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=coldstart" >/dev/null 2>&1
 fi
-"$BT/apksigner" sign --ks "$KS" --ks-pass pass:android --key-pass pass:android \
+"$BT/apksigner" sign --ks "$KS" --ks-alias "$KS_ALIAS" --ks-pass env:KS_PASS --key-pass env:KS_PASS \
   --v1-signing-enabled true --v2-signing-enabled true --min-sdk-version 19 \
   --out "$APP/coldstart.apk" "$OUT/aligned.apk"
 

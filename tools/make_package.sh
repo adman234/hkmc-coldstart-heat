@@ -23,5 +23,5 @@ type=install
 path=packages/coldstart.heat.zip
 EOF
 rm -f "$ROOT/dist/hkmc-coldstart-heat-USB.zip"
-( cd "$ROOT/dist" && zip -r -X hkmc-coldstart-heat-USB.zip usb-bundle >/dev/null && rm -rf usb-bundle )
+( cd "$ROOT/dist" && ( cd usb-bundle && zip -r -X ../hkmc-coldstart-heat-USB.zip . >/dev/null ) && rm -rf usb-bundle )
 echo "wrote dist/hkmc-coldstart-heat-USB.zip (extract to a FAT32/exFAT USB root)"

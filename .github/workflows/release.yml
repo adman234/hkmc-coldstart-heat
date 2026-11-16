@@ -1,0 +1,43 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Test service script
+        run: sudo apt-get install -y mksh >/dev/null && bash tools/test_coldstart.sh
+      - name: Install Android build tools
+        run: |
+          export ANDROID_SDK="$HOME/android-sdk"
+          mkdir -p "$ANDROID_SDK"
+          curl -sSL -o cmd.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q cmd.zip -d "$ANDROID_SDK/cmdline-tools-tmp"
+          mkdir -p "$ANDROID_SDK/cmdline-tools"; mv "$ANDROID_SDK/cmdline-tools-tmp/cmdline-tools" "$ANDROID_SDK/cmdline-tools/latest"
+          yes | "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_SDK/cmdline-tools/latest/bin/sdkmanager" "build-tools;30.0.3" "platforms;android-30" >/dev/null
+          echo "ANDROID_SDK=$ANDROID_SDK" >> "$GITHUB_ENV"
+      - name: Build, sign, package
+        env:
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KS_B64: ${{ secrets.KS_B64 }}
+        run: |
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          export KEYSTORE="$RUNNER_TEMP/release.jks" KS_ALIAS=coldstart
+          bash tools/build_apk.sh
+          mkdir -p package/app && cp app/coldstart.apk package/app/coldstart.apk
+          bash tools/make_package.sh
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/coldstart.heat.zip dist/hkmc-coldstart-heat-USB.zip \
+            --title "Cold-start Heat ${GITHUB_REF_NAME#v} (always-on)" \
+            --notes "Applies the heated wheel and chosen seat action on every start, no temperature sensor. Cool mode needs vent_enum_1/2/3 set (unverified). Not tested on a car yet: test while parked. Same signing key for every release, so it updates in place."
