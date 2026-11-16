@@ -11,12 +11,23 @@ cat > "$T/bin/service" <<'E2'
 case "$1" in check) echo "Service $2: found" ;; call) shift; echo "$*" >> "$T/sent" ;; esac
 E2
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/sleep"
+cat > "$T/bin/dumpsys" <<'E3'
+#!/bin/sh
+l=$(head -n 1 "$T/seq"); [ -n "$l" ] || l=on
+if [ "$(wc -l < "$T/seq")" -gt 1 ]; then tail -n +2 "$T/seq" > "$T/seq.n"; mv "$T/seq.n" "$T/seq"; fi
+if [ "$l" = off ]; then echo "mDisplayPowerRequest=policy=OFF"; else echo "mDisplayPowerRequest=policy=BRIGHT"; fi
+E3
 chmod +x "$T/bin/"*
-export T
+export T CS_DUMPSYS_BIN="$T/bin/dumpsys" CS_SESSION_MARKER="$T/session" CS_FB_BLANK="$T/none" CS_BOOT_ID_FILE="$T/bootid"
+export CS_MAX_LOOPS=6 CS_COOLDOWN_SECONDS=0 CS_MIN_OFF_SECONDS=0 CS_POLL_SECONDS=0
+echo bootA > "$T/bootid"
 sed -e "s#^export PATH=.*#export PATH=$T/bin:/usr/bin:/bin#" -e "s#^STATE=.*#STATE=$T/state#" "$SRC" > "$T/cs.sh"
 pass=0 fail=0
-sc() {  # sc <name> <state k=v,...> <expected sends>
-    rm -f "$T/sent" "$T"/state/*
+sc() {  # sc <name> <state k=v,...> <expected sends> [display sequence, space separated]
+    rm -f "$T/sent" "$T/session" "$T"/state/*
+    printf '%s
+' ${4:-on on on on on on} > "$T/seq"
+    [ -n "$MARK" ] && echo "1 bootA" > "$T/session"
     for kv in ${2//,/ }; do echo "${kv#*=}" > "$T/state/${kv%%=*}"; done
     "$SH" "$T/cs.sh" > "$T/log" 2>&1
     got=$(cat "$T/sent" 2>/dev/null)
@@ -37,4 +48,12 @@ sc "cool, no vent codes: seat skipped"         "wheel=0,seat_drv=2,seat_mode=1" 
 sc "cool with vent codes"                      "wheel=0,seat_drv=2,seat_mode=1,vent_enum_2=11" "com.hkmc.micom.usm 213 i32 11"
 sc "cool does not touch wheel"                 "seat_mode=1,seat_drv=1"             "$W"
 sc "junk config falls back to default"         "wheel=abc,seat_drv=x"               "$W"
+# --- start-signal logic (the part that decides WHEN to apply) ---
+MARK=1 sc "same boot, marker present, screen stays on: no re-fire" "" "" "on on on on on on"
+MARK=1 sc "marker present, screen off then on: fires" "wheel=1" "$W" "off off on on on on"
+sc "screen off then on: fires on wake"       "seat_drv=3" "$W"$'
+'"$D8" "off off on on on on"
+sc "off/on twice: fires twice"               "wheel=1"    "$W"$'
+'"$W" "off on off on on on"
+sc "display on at start, no marker: fires at start" "wheel=1" "$W" "on on on on on on"
 echo "$pass passed, $fail failed"; [ "$fail" = 0 ]
