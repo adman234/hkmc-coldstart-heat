@@ -20,7 +20,7 @@
 #   heat enum:  2=Off 6=Low 7=Med 8=High ; config level 1/2/3 -> 6/7/8
 # Cool/vent enums are NOT verified: cool only acts if vent_enum_1/2/3 are set.
 #
-# Log of the last runs: /data/nemesis/state/coldstart.heat/run.log
+# Optional log (off by default; toggle in the app): /data/nemesis/state/coldstart.heat/run.log
 # TEST WHILE PARKED.
 export PATH=/data/nemesis/bin:/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
 export LD_LIBRARY_PATH=/vendor/lib:/system/lib
@@ -38,7 +38,8 @@ MIN_OFF=${CS_MIN_OFF_SECONDS:-20}     # screen must have been off this long
 GAP_SECONDS=45
 mkdir -p "$STATE" 2>/dev/null
 RUNLOG=$STATE/run.log
-log() { echo "coldstart: $(date 2>/dev/null) $*"; echo "$(date 2>/dev/null) $*" >> "$RUNLOG" 2>/dev/null; }
+LOGGING=0
+log() { echo "coldstart: $(date 2>/dev/null) $*"; [ "$LOGGING" = "1" ] && echo "$(date 2>/dev/null) $*" >> "$RUNLOG" 2>/dev/null; return 0; }
 
 cfg() { _f="$STATE/$1"; _d="$2"; if [ -r "$_f" ]; then read -r _v < "$_f" 2>/dev/null; case "$_v" in ''|*[!0-9-]*) echo "$_d";; *) echo "$_v";; esac; else echo "$_d"; fi; }
 
@@ -134,6 +135,7 @@ INITIAL=1; DISPLAY_STATE=unknown; LOOPS=0
 log "monitor started; boot_id=$BOOT_ID; session=$SESSION"
 
 while :; do
+    LOGGING=$(cfg logging 0)
     DISPLAY_STATE=$(read_display_state)
     NOW=$(uptime_seconds)
     [ "$DISPLAY_STATE" != "$LAST_DISPLAY" ] && log "display: $LAST_DISPLAY -> $DISPLAY_STATE"

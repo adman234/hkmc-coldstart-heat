@@ -28,9 +28,10 @@ public class MainActivity extends Activity {
     int seatDrv = 0;      // 0..3
     int seatPass = 0;     // 0..3
     boolean cool = false; // false = heat, true = cool/vent (needs vent_enum_1..3)
+    boolean logging = false;
 
     TextView statusLabel;
-    Button enBtn, wheelBtn, modeBtn, drvBtn, passBtn;
+    Button enBtn, wheelBtn, modeBtn, drvBtn, passBtn, logBtn;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -108,6 +109,20 @@ public class MainActivity extends Activity {
         });
         root.addView(off);
 
+        root.addView(gap());
+        root.addView(section("Settings"));
+        logBtn = new Button(this);
+        logBtn.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { logging = !logging; saveLogging(); refresh(); }
+        });
+        root.addView(logBtn);
+        Button usb = new Button(this);
+        usb.setText("Copy logs to USB (then clear)");
+        usb.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { copyLogsToUsb(); }
+        });
+        root.addView(usb);
+
         statusLabel = new TextView(this);
         statusLabel.setTextColor(Color.rgb(140, 160, 180));
         statusLabel.setPadding(0, dp(16), 0, 0);
@@ -123,6 +138,7 @@ public class MainActivity extends Activity {
         modeBtn.setText("Seat mode:  " + (cool ? "Cool (needs codes)" : "Heat"));
         drvBtn.setText("Driver seat:  " + LEVEL[seatDrv]);
         passBtn.setText("Passenger seat:  " + LEVEL[seatPass]);
+        logBtn.setText("Logging:  " + (logging ? "ON" : "off"));
     }
 
     // ---- config I/O via `nemesis root -c` -------------------------------
@@ -151,6 +167,7 @@ public class MainActivity extends Activity {
         seatDrv = clamp(readInt("seat_drv", 0), 0, 3);
         seatPass= clamp(readInt("seat_pass", 0), 0, 3);
         cool    = readInt("seat_mode", 0) == 1;
+        logging = readInt("logging", 0) == 1;
     }
 
     void saveConfig() {
@@ -166,6 +183,32 @@ public class MainActivity extends Activity {
             + ", " + (cool ? "cool" : "heat") + " drv " + LEVEL[seatDrv] + ", pass " + LEVEL[seatPass]); }
     }
 
+
+    void saveLogging() {
+        String r = runRoot("mkdir -p " + STATE + "; echo " + (logging ? 1 : 0) + " > " + STATE + "/logging");
+        if (r.startsWith("ERR")) toast("Save failed: " + r);
+        else toast(logging ? "Logging on" : "Logging off");
+    }
+
+    // Copies run.log to the first writable USB volume; clears the on-unit log only if the copy is non-empty.
+    void copyLogsToUsb() {
+        String L = STATE + "/run.log";
+        String cmd = "if [ ! -s " + L + " ] && [ ! -s " + L + ".1 ]; then echo NOLOG; exit 0; fi; "
+            + "for d in /storage/*/ /mnt/media_rw/*/; do "
+            + "case \"$d\" in */emulated/*|*/self/*|*/sdcard*) continue;; esac; "
+            + "[ -d \"$d\" ] && [ -w \"$d\" ] || continue; "
+            + "o=\"${d}coldstart-log-$(date +%Y%m%d-%H%M%S).txt\"; "
+            + "cat " + L + ".1 " + L + " > \"$o\" 2>/dev/null; sync; "
+            + "if [ -s \"$o\" ]; then rm -f " + L + " " + L + ".1; echo OK:$o; else rm -f \"$o\"; echo FAIL; fi; exit 0; done; echo NOUSB";
+        String r = runRoot(cmd).trim();
+        String msg;
+        if (r.startsWith("OK:")) msg = "Copied to " + r.substring(3) + " and cleared";
+        else if (r.equals("NOLOG")) msg = "No logs saved (is logging on?)";
+        else if (r.equals("NOUSB")) msg = "No USB stick found";
+        else msg = "Copy failed - logs kept";
+        toast(msg);
+        statusLabel.setText(msg);
+    }
     // heat: UI level 1/2/3 -> 6/7/8. cool: read vent_enum_<n> on the unit; -1 = not set.
     int seatEnum(int lvl) {
         if (cool) return readInt("vent_enum_" + lvl, -1);

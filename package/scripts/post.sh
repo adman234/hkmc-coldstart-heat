@@ -8,5 +8,6 @@ mkdir -p "$STATE" 2>/dev/null
 [ -r "$STATE/seat_drv" ]  || echo 0 > "$STATE/seat_drv"
 [ -r "$STATE/seat_pass" ] || echo 0 > "$STATE/seat_pass"
 [ -r "$STATE/seat_mode" ] || echo 0 > "$STATE/seat_mode"
+[ -r "$STATE/logging" ]   || echo 0 > "$STATE/logging"
 echo "coldstart.heat installed (always-on)"
 exit 0

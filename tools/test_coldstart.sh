@@ -37,6 +37,8 @@ W="com.hkmc.vr 16 i32 1"
 D6="com.hkmc.micom.usm 213 i32 6"; D7="com.hkmc.micom.usm 213 i32 7"; D8="com.hkmc.micom.usm 213 i32 8"
 P8="com.hkmc.micom.usm 214 i32 8"
 sc "defaults: wheel only"                      ""                                   "$W"
+sc "logging off: no run.log"                   ""                                   "$W"; [ ! -e "$T/state/run.log" ] && echo "ok   logging off writes nothing" || { echo "FAIL logging off wrote a log"; fail=$((fail+1)); }
+sc "logging on: run.log written"               "logging=1"                          "$W"; grep -q "wheel on" "$T/state/run.log" 2>/dev/null && echo "ok   logging on writes log" || { echo "FAIL logging on wrote no log"; fail=$((fail+1)); }
 sc "wheel off, no seats: nothing"              "wheel=0"                            ""
 sc "driver low"                                "wheel=0,seat_drv=1"                 "$D6"
 sc "driver med"                                "wheel=0,seat_drv=2"                 "$D7"
