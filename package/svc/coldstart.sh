@@ -104,6 +104,7 @@ apply_once() {
     ENABLED=$(cfg enabled 1); WHEEL=$(cfg wheel 1)
     SEAT_DRV=$(cfg seat_drv 0); SEAT_PASS=$(cfg seat_pass 0); SEAT_MODE=$(cfg seat_mode 0)
     MAX_WAIT=$(cfg max_wait 120); DELAY=$(cfg start_delay 3)
+    RETRIES=${CS_WHEEL_RETRIES:-$(cfg wheel_retries 2)}; RETRY_GAP=$(cfg retry_gap 20)
     log "START SIGNAL: $_why; display=$DISPLAY_STATE; uptime=$NOW; enabled=$ENABLED wheel=$WHEEL drv=$SEAT_DRV pass=$SEAT_PASS mode=$SEAT_MODE"
     if [ "$ENABLED" != "1" ]; then log "disabled; no action"; write_session_marker; return; fi
 
@@ -115,17 +116,27 @@ apply_once() {
     if [ "$ready" = "1" ]; then log "vr ready after ${i}s"; else log "vr not ready after ${MAX_WAIT}s; trying anyway"; fi
     [ "$DELAY" -gt 0 ] 2>/dev/null && sleep "$DELAY"
 
-    if [ "$WHEEL" = "1" ]; then
-        service call com.hkmc.vr 16 i32 1 >/dev/null 2>&1; log "wheel on (exit $?)"
-    fi
-    seat_apply drv 213 "$SEAT_DRV"
-    seat_apply pass 214 "$SEAT_PASS"
+    # Send the commands, then re-send after RETRY_GAP seconds, RETRIES more times: right after a
+    # cold boot the car may ignore the first command (service call exits 0 even when ignored).
+    # The binder reply is logged so a refused or failed call is visible.
+    n=0
+    while :; do
+        n=$((n + 1))
+        if [ "$WHEEL" = "1" ]; then
+            _o=$(service call com.hkmc.vr 16 i32 1 2>&1); _rc=$?; _o=$(echo $_o)
+            log "wheel on try $n (exit $_rc) uptime=$(uptime_seconds) reply=$_o"
+        fi
+        seat_apply drv 213 "$SEAT_DRV"
+        seat_apply pass 214 "$SEAT_PASS"
+        [ "$n" -gt "$RETRIES" ] && break
+        sleep "$RETRY_GAP"
+    done
     log "done"
     write_session_marker
 }
 
 # keep the log small
-_sz=$(wc -c < "$RUNLOG" 2>/dev/null || echo 0); case "$_sz" in ''|*[!0-9]*) _sz=0;; esac
+_sz=0; [ -f "$RUNLOG" ] && _sz=$(wc -c < "$RUNLOG" 2>/dev/null)
 [ "$_sz" -gt 65536 ] && mv "$RUNLOG" "$RUNLOG.1" 2>/dev/null
 
 BOOT_ID=unknown

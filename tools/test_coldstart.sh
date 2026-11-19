@@ -19,7 +19,7 @@ if [ "$l" = off ]; then echo "mDisplayPowerRequest=policy=OFF"; else echo "mDisp
 E3
 chmod +x "$T/bin/"*
 export T CS_DUMPSYS_BIN="$T/bin/dumpsys" CS_SESSION_MARKER="$T/session" CS_FB_BLANK="$T/none" CS_BOOT_ID_FILE="$T/bootid"
-export CS_MAX_LOOPS=6 CS_COOLDOWN_SECONDS=0 CS_MIN_OFF_SECONDS=0 CS_POLL_SECONDS=0
+export CS_WHEEL_RETRIES=0 CS_MAX_LOOPS=6 CS_COOLDOWN_SECONDS=0 CS_MIN_OFF_SECONDS=0 CS_POLL_SECONDS=0
 echo bootA > "$T/bootid"
 sed -e "s#^export PATH=.*#export PATH=$T/bin:/usr/bin:/bin#" -e "s#^STATE=.*#STATE=$T/state#" "$SRC" > "$T/cs.sh"
 pass=0 fail=0
@@ -37,6 +37,9 @@ W="com.hkmc.vr 16 i32 1"
 D6="com.hkmc.micom.usm 213 i32 6"; D7="com.hkmc.micom.usm 213 i32 7"; D8="com.hkmc.micom.usm 213 i32 8"
 P8="com.hkmc.micom.usm 214 i32 8"
 sc "defaults: wheel only"                      ""                                   "$W"
+CS_WHEEL_RETRIES=2 sc "retries: sent 3 times"              "wheel=1"                            "$W"$'
+'"$W"$'
+'"$W"
 sc "logging off: no run.log"                   ""                                   "$W"; [ ! -e "$T/state/run.log" ] && echo "ok   logging off writes nothing" || { echo "FAIL logging off wrote a log"; fail=$((fail+1)); }
 sc "logging on: run.log written"               "logging=1"                          "$W"; grep -q "wheel on" "$T/state/run.log" 2>/dev/null && echo "ok   logging on writes log" || { echo "FAIL logging on wrote no log"; fail=$((fail+1)); }
 sc "wheel off, no seats: nothing"              "wheel=0"                            ""
