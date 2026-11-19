@@ -194,18 +194,24 @@ public class MainActivity extends Activity {
     void copyLogsToUsb() {
         String L = STATE + "/run.log";
         String cmd = "if [ ! -s " + L + " ] && [ ! -s " + L + ".1 ]; then echo NOLOG; exit 0; fi; "
-            + "for d in /storage/*/ /mnt/media_rw/*/; do "
-            + "case \"$d\" in */emulated/*|*/self/*|*/sdcard*) continue;; esac; "
-            + "[ -d \"$d\" ] && [ -w \"$d\" ] || continue; "
-            + "o=\"${d}coldstart-log-$(date +%Y%m%d-%H%M%S).txt\"; "
+            + "list=\"$(grep -E ' (vfat|exfat|ntfs|sdfat|texfat|fuseblk|msdos) ' /proc/mounts | while read a b c r; do echo $b; done) "
+            + "$(ls -d /storage/*/ /storage/*/*/ /mnt/media_rw/*/ /mnt/usb*/ /mnt/*/ 2>/dev/null)\"; "
+            + "tried=''; "
+            + "for d in $list; do d=${d%/}; "
+            + "case \"$d\" in ''|*/emulated*|*/self*|*/sdcard*|/mnt/runtime*|/mnt/user*|/mnt/shell*|/mnt/obb*|/mnt/asec*|/mnt/secure*|/mnt/expand*|/mnt/androidwritable*|/mnt/pass_through*|/mnt/installer*|/mnt/vendor*) continue;; esac; "
+            + "[ -d \"$d\" ] || continue; "
+            + "tried=\"$tried $d\"; "
+            + "touch \"$d/.cs_w\" 2>/dev/null || continue; rm -f \"$d/.cs_w\"; "
+            + "o=\"$d/coldstart-log-$(date +%Y%m%d-%H%M%S).txt\"; "
             + "cat " + L + ".1 " + L + " > \"$o\" 2>/dev/null; sync; "
-            + "if [ -s \"$o\" ]; then rm -f " + L + " " + L + ".1; echo OK:$o; else rm -f \"$o\"; echo FAIL; fi; exit 0; done; echo NOUSB";
+            + "if [ -s \"$o\" ]; then rm -f " + L + " " + L + ".1; echo OK:$o; exit 0; else rm -f \"$o\"; fi; done; "
+            + "echo NOUSB:$tried";
         String r = runRoot(cmd).trim();
         String msg;
         if (r.startsWith("OK:")) msg = "Copied to " + r.substring(3) + " and cleared";
-        else if (r.equals("NOLOG")) msg = "No logs saved (is logging on?)";
-        else if (r.equals("NOUSB")) msg = "No USB stick found";
-        else msg = "Copy failed - logs kept";
+        else if (r.equals("NOLOG")) msg = "No logs saved on the unit. Turn Logging ON, then sleep/wake the car, then try again.";
+        else if (r.startsWith("NOUSB")) msg = "No writable USB found. Logs kept. Folders tried: " + (r.length() > 6 ? r.substring(6) : "none") + ". Re-seat the stick (FAT32/exFAT) and retry.";
+        else msg = "Copy failed - logs kept. Output: " + (r.length() > 200 ? r.substring(0, 200) : r);
         toast(msg);
         statusLabel.setText(msg);
     }
